@@ -1,0 +1,54 @@
+{
+  "name": "electron-react-app",
+  "version": "1.0.0",
+  "main": "electron/main.js",
+  "description": "",
+  "author": "K140024",
+  "license": "ISC",
+  "scripts": {
+    "dev": "concurrently \"npm run dev-react\" \"npm run dev-electron\"",
+    "dev-react": "cd react-ui && npm run dev",
+    "dev-electron": "wait-on tcp:5173 && electron electron/main.js",
+    "build": "npm run build-react && npm run package",
+    "build-react": "cd react-ui && npm run build",
+    "package": "electron-builder"
+  },
+  "keywords": [],
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "electron": "^36.3.1",
+    "electron-builder": "^26.0.12",
+    "wait-on": "^8.0.3"
+  },
+  "build": {
+  "appId": "com.example.electronapp",
+  "productName": "ElectronReactApp",
+  "directories": {
+    "buildResources": "assets"
+  },
+  "files": [
+    "electron/**/*",
+    "react-ui/dist/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": "server/server.js",
+      "to": "server/server.js"
+    },
+    {
+      "from": "server/node_modules",
+      "to": "server/node_modules"
+    }
+  ],
+  "asar": true,
+  "win": {
+    "target": ["nsis"],
+    "icon": "assets/icon.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true
+  }
+}
+}
