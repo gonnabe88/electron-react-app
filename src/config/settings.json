@@ -1,0 +1,37 @@
+{
+  "api": {
+    "baseUrl": "http://localhost:3001",
+    "endpoints": {
+      "login": "/api/login",
+      "sso": "/api/sso",
+      "test": "/api/test"
+    }
+  },
+  "payloads": {
+    "login": {
+      "username": "testuser",
+      "password": "testpass"
+    },
+    "sso": {
+      "clientId": "test-client",
+      "redirectUri": "http://localhost:3000/callback",
+      "scope": "openid profile email"
+    },
+    "test": {
+      "param1": "value1",
+      "param2": "value2"
+    }
+  },
+  "headers": {
+    "Content-Type": "application/json",
+    "Accept": "application/json"
+  },
+  "lastUsed": {
+    "url": "http://localhost:3001/api/test",
+    "method": "POST",
+    "payload": {
+      "test": "value"
+    },
+    "timestamp": "2024-03-14T00:00:00.000Z"
+  }
+} 

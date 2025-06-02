@@ -4,6 +4,7 @@ const cors = require('cors');
 const fs = require('fs');
 const fetch = require('node-fetch');
 const path = require('path');
+const { chromium } = require('playwright');
 
 const app = express();
 const PORT = 3001;
@@ -11,12 +12,83 @@ const PORT = 3001;
 // 로그 파일 경로
 const LOG_FILE = path.join(__dirname, 'server-debug.log');
 
+// Playwright 브라우저 인스턴스 전역 변수
+let browser = null;
+let context = null;
+let page = null;
+let isInitialized = false;
+
 // 로그 출력 함수
 const logToFile = (message) => {
   const logMessage = `[${new Date().toISOString()}] ${message}\n`;
   fs.appendFileSync(LOG_FILE, logMessage);
-  process.stdout.write(logMessage); // 콘솔에도 출력 시도
+  process.stdout.write(logMessage);
 };
+
+// Playwright 브라우저 초기화 함수
+async function initPlaywright() {
+  if (!isInitialized) {
+    logToFile('🔸 Playwright 브라우저 초기화');
+    try {
+      // 이전 인스턴스가 있다면 정리
+      if (browser) {
+        logToFile('🔸 이전 브라우저 인스턴스 정리');
+        await closePlaywright();
+      }
+
+      browser = await chromium.launch({
+        headless: false,
+        slowMo: 100,
+        args: ['--start-maximized']
+      });
+
+      context = await browser.newContext({
+        viewport: null,
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      });
+
+      // 새 페이지 생성
+      page = await context.newPage();
+      
+      // 페이지 이벤트 리스너 설정
+      page.on('console', msg => logToFile(`🔸 브라우저 콘솔: ${msg.text()}`));
+      page.on('pageerror', err => logToFile(`❌ 페이지 에러: ${err.message}`));
+      page.on('request', req => logToFile(`📤 요청: ${req.method()} ${req.url()}`));
+      page.on('response', res => logToFile(`📥 응답: ${res.status()} ${res.url()}`));
+
+      isInitialized = true;
+      logToFile('✅ Playwright 브라우저 초기화 완료');
+    } catch (err) {
+      logToFile(`❌ Playwright 초기화 실패: ${err.message}`);
+      throw err;
+    }
+  }
+  return { browser, context, page };
+}
+
+// Playwright 브라우저 종료 함수
+async function closePlaywright() {
+  if (browser) {
+    logToFile('🔸 Playwright 브라우저 종료');
+    try {
+      if (page) {
+        await page.close().catch(() => {});
+        page = null;
+      }
+      if (context) {
+        await context.close().catch(() => {});
+        context = null;
+      }
+      await browser.close();
+      browser = null;
+      isInitialized = false;
+      logToFile('✅ Playwright 브라우저 종료 완료');
+    } catch (err) {
+      logToFile(`❌ Playwright 종료 실패: ${err.message}`);
+      throw err;
+    }
+  }
+}
 
 // 시작할 때 로그 파일 초기화
 fs.writeFileSync(LOG_FILE, '=== 서버 로그 시작 ===\n');
@@ -54,14 +126,126 @@ app.use((req, res, next) => {
 
 app.post('/api/test', async (req, res) => {
   logToFile('📦 요청 본문: ' + JSON.stringify(req.body, null, 2));
-  const { url1, url2, payload, requestType } = req.body;
+  const { url1, url2, url5, url6, payload, payload6, requestType } = req.body;
   const log = [];
 
   try {
     let cookies = null;
     let keyValue = null;
 
-    if (requestType === 'sso') {
+    if (requestType === 'api') {
+      // 일반 API 요청 처리
+      if (!url2) {
+        throw new Error('API URL이 필요합니다.');
+      }
+
+      logToFile('🔸 API 요청 시작: ' + url2);
+      logToFile('📦 API 요청 payload: ' + JSON.stringify(payload, null, 2));
+      log.push(`🔸 API 요청 중: ${url2}`);
+      
+      const requestOptions = {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      };
+
+      logToFile('🔧 API 요청 옵션: ' + JSON.stringify(requestOptions, null, 2));
+
+      const apiResponse = await fetch(url2, requestOptions);
+      logToFile('📡 API 응답 상태: ' + apiResponse.status);
+      logToFile('📡 API 응답 헤더: ' + JSON.stringify(Object.fromEntries(apiResponse.headers.entries()), null, 2));
+
+      if (!apiResponse.ok) {
+        const errorMsg = `API 요청 실패: ${apiResponse.status} ${apiResponse.statusText}`;
+        logToFile('❌ ' + errorMsg);
+        throw new Error(errorMsg);
+      }
+
+      const responseData = await apiResponse.text();
+      logToFile('📨 API 응답 데이터: ' + responseData);
+      log.push('✅ API 요청 성공');
+
+      // 응답 데이터가 JSON인지 확인
+      try {
+        const jsonData = JSON.parse(responseData);
+        logToFile('✅ 응답이 유효한 JSON입니다');
+      } catch (e) {
+        logToFile('⚠️ 응답이 JSON 형식이 아닙니다');
+      }
+
+      logToFile('✅ 클라이언트로 응답 전송');
+      res.send({
+        responseData: responseData,
+        logs: log
+      });
+
+    } else if (requestType === 'playwright') {
+      // Playwright를 사용한 URL5, URL6 요청 처리
+      if (!url5 || !url6) {
+        throw new Error('URL5와 URL6이 모두 필요합니다.');
+      }
+
+      logToFile('🔸 Playwright 브라우저 시작');
+      log.push('🔸 Playwright 브라우저 시작');
+      
+      const { page } = await initPlaywright();
+
+      try {
+        // URL5 GET 요청
+        logToFile(`🔸 URL5 GET 요청 시작: ${url5}`);
+        log.push(`🔸 URL5 GET 요청 시작: ${url5}`);
+        
+        await page.goto(url5, { 
+          waitUntil: 'networkidle',
+          timeout: 30000 // 타임아웃 30초로 설정
+        });
+        const url5Cookies = await context.cookies();
+        logToFile(`🔑 URL5 쿠키 획득: ${JSON.stringify(url5Cookies)}`);
+        log.push('✅ URL5 요청 완료');
+
+        // URL6 POST 요청
+        logToFile(`🔸 URL6 POST 요청 시작: ${url6}`);
+        log.push(`🔸 URL6 POST 요청 시작: ${url6}`);
+        
+        const response = await page.request.post(url6, {
+          form: payload6,
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          }
+        });
+
+        const responseData = await response.text();
+        logToFile(`📨 URL6 응답 데이터: ${responseData}`);
+        log.push('✅ URL6 요청 완료');
+
+        // 응답 데이터가 JSON인지 확인
+        try {
+          const jsonData = JSON.parse(responseData);
+          logToFile('✅ 응답이 유효한 JSON입니다');
+        } catch (e) {
+          logToFile('⚠️ 응답이 JSON 형식이 아닙니다');
+        }
+
+        // 브라우저 컨텍스트의 모든 쿠키 가져오기
+        const finalCookies = await context.cookies();
+        const cookieString = finalCookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ');
+        
+        logToFile('✅ 클라이언트로 응답 전송');
+        res.send({
+          responseData: responseData,
+          requestCookies: cookieString,
+          logs: log
+        });
+
+      } finally {
+        await closePlaywright();
+        logToFile('🔸 Playwright 브라우저 종료');
+        log.push('🔸 Playwright 브라우저 종료');
+      }
+
+    } else if (requestType === 'sso') {
       // URL3, URL4 SSO 요청 처리
       if (!url1 || !url2) {
         throw new Error('URL3와 URL4가 모두 필요합니다.');
@@ -238,75 +422,7 @@ app.post('/api/test', async (req, res) => {
       });
 
     } else {
-      // URL1, URL2 일반 요청 처리
-      if (!url2) {
-        throw new Error('URL2가 필요합니다.');
-      }
-
-      // SSO 요청 수행 (선택사항)
-      if (url1) {
-        logToFile('🔸 SSO 요청 시작: ' + url1);
-        log.push(`🔸 SSO 로그인 요청 중: ${url1}`);
-        const ssoResponse = await fetch(url1);
-        logToFile('SSO 응답 상태: ' + ssoResponse.status);
-        
-        if (!ssoResponse.ok) {
-          const errorMsg = `SSO 요청 실패: ${ssoResponse.status} ${ssoResponse.statusText}`;
-          logToFile('❌ ' + errorMsg);
-          throw new Error(errorMsg);
-        }
-
-        // SSO 쿠키 추출
-        cookies = ssoResponse.headers.get('set-cookie');
-        logToFile('🔑 쿠키: ' + (cookies || '없음'));
-        log.push('✅ SSO 세션 획득 성공');
-      } else {
-        logToFile('ℹ️ SSO 요청 건너뜀 (URL1이 비어있음)');
-      }
-
-      // API 요청 (POST)
-      logToFile('🔸 API 요청 시작: ' + url2);
-      logToFile('📦 API 요청 payload: ' + JSON.stringify(payload, null, 2));
-      log.push(`🔸 API 요청 중: ${url2}`);
-      
-      const requestOptions = {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(cookies && { 'Cookie': cookies })
-        },
-        body: JSON.stringify(payload)
-      };
-
-      logToFile('🔧 API 요청 옵션: ' + JSON.stringify(requestOptions, null, 2));
-
-      const apiResponse = await fetch(url2, requestOptions);
-      logToFile('📡 API 응답 상태: ' + apiResponse.status);
-      logToFile('📡 API 응답 헤더: ' + JSON.stringify(Object.fromEntries(apiResponse.headers.entries()), null, 2));
-
-      if (!apiResponse.ok) {
-        const errorMsg = `API 요청 실패: ${apiResponse.status} ${apiResponse.statusText}`;
-        logToFile('❌ ' + errorMsg);
-        throw new Error(errorMsg);
-      }
-
-      const responseData = await apiResponse.text();
-      logToFile('📨 API 응답 데이터: ' + responseData);
-      log.push('✅ API 요청 성공');
-
-      // 응답 데이터가 JSON인지 확인
-      try {
-        const jsonData = JSON.parse(responseData);
-        logToFile('✅ 응답이 유효한 JSON입니다');
-      } catch (e) {
-        logToFile('⚠️ 응답이 JSON 형식이 아닙니다');
-      }
-
-      logToFile('✅ 클라이언트로 응답 전송');
-      res.send({
-        responseData: responseData,
-        logs: log
-      });
+      throw new Error('유효하지 않은 요청 타입입니다.');
     }
 
   } catch (error) {
@@ -316,6 +432,151 @@ app.post('/api/test', async (req, res) => {
       error: error.message,
       logs: log
     });
+  }
+});
+
+// Playwright 요청 처리 엔드포인트
+app.post('/api/playwright', async (req, res) => {
+  const { url, payload, step } = req.body;
+  const log = [];
+
+  try {
+    // 각 단계마다 새로운 페이지 생성
+    if (page) {
+      logToFile('🔸 이전 페이지 닫기');
+      await page.close().catch(() => {});
+      page = null;
+    }
+
+    const { browser, context } = await initPlaywright();
+    if (!browser || !context) {
+      throw new Error('Playwright 브라우저가 초기화되지 않았습니다.');
+    }
+
+    // 새 페이지 생성
+    page = await context.newPage();
+    logToFile(`🔸 새 페이지 생성 (${step}단계)`);
+    
+    // 페이지 이벤트 리스너 설정
+    page.on('console', msg => logToFile(`🔸 브라우저 콘솔: ${msg.text()}`));
+    page.on('pageerror', err => logToFile(`❌ 페이지 에러: ${err.message}`));
+    page.on('request', req => logToFile(`📤 요청: ${req.method()} ${req.url()}`));
+    page.on('response', res => logToFile(`📥 응답: ${res.status()} ${res.url()}`));
+
+    logToFile(`🔸 Playwright ${step}단계 요청 시작: ${url}`);
+    log.push(`🔸 ${step}단계 요청 시작: ${url}`);
+
+    try {
+      // 페이지 이동 전 타임아웃 설정
+      page.setDefaultTimeout(30000);
+      page.setDefaultNavigationTimeout(30000);
+
+      // 모든 요청 허용
+      await page.route('**/*', async (route) => {
+        await route.continue();
+      });
+
+      // 페이지 이동 전 준비
+      await page.evaluate(() => {
+        // 페이지 이동 방지 이벤트 제거
+        window.onbeforeunload = null;
+        // 모든 팝업 차단 해제
+        window.open = (url) => {
+          window.location.href = url;
+          return null;
+        };
+      });
+
+      // 페이지 이동 시도
+      logToFile(`🔸 페이지 이동 시도: ${url}`);
+      await page.goto(url, {
+        waitUntil: ['networkidle', 'domcontentloaded', 'load'],
+        timeout: 30000
+      });
+
+      // 페이지 로드 완료 대기
+      await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {
+        logToFile('⚠️ networkidle 타임아웃, 계속 진행');
+      });
+
+      // 페이지가 완전히 로드될 때까지 대기
+      await page.evaluate(() => {
+        return new Promise((resolve) => {
+          if (document.readyState === 'complete') {
+            resolve();
+          } else {
+            window.addEventListener('load', resolve);
+          }
+        });
+      });
+
+      // 페이지 스크롤 처리
+      await page.evaluate(() => {
+        return new Promise((resolve) => {
+          let lastScroll = 0;
+          const checkScroll = () => {
+            const currentScroll = window.scrollY;
+            if (currentScroll === lastScroll) {
+              resolve();
+            } else {
+              lastScroll = currentScroll;
+              window.scrollTo(0, document.body.scrollHeight);
+              setTimeout(checkScroll, 100);
+            }
+          };
+          checkScroll();
+        });
+      }).catch(() => {
+        logToFile('⚠️ 스크롤 처리 실패, 계속 진행');
+      });
+
+      // 최종 URL 확인
+      const finalUrl = page.url();
+      logToFile(`🔗 최종 URL: ${finalUrl}`);
+
+      // 페이지 내용 가져오기
+      const content = await page.content();
+      const cookies = await context.cookies();
+      
+      logToFile(`✅ ${step}단계 요청 완료`);
+      log.push(`✅ ${step}단계 요청 완료`);
+
+      res.send({
+        success: true,
+        data: {
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          data: content,
+          currentUrl: finalUrl,
+          beforeUrl: url
+        },
+        logs: log
+      });
+
+    } catch (err) {
+      logToFile(`❌ 페이지 이동 실패: ${err.message}`);
+      throw new Error(`페이지 이동 실패: ${err.message}`);
+    }
+
+  } catch (err) {
+    logToFile(`❌ Playwright 요청 실패: ${err.message}`);
+    res.status(500).send({
+      success: false,
+      error: err.message,
+      logs: log
+    });
+  }
+});
+
+// Playwright 브라우저 종료 엔드포인트
+app.post('/api/close-playwright', async (req, res) => {
+  try {
+    await closePlaywright();
+    res.send({ success: true });
+  } catch (err) {
+    logToFile(`❌ Playwright 종료 실패: ${err.message}`);
+    res.status(500).send({ success: false, error: err.message });
   }
 });
 

@@ -1,7 +1,8 @@
 // main.js
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const { fork } = require('child_process');
+const fetch = require('node-fetch');
 const isDev = !app.isPackaged;
 
 let mainWindow = null;
@@ -66,6 +67,38 @@ function startBackend() {
     }
   });
 }
+
+// IPC 핸들러 등록
+ipcMain.handle('run-playwright', async (event, { url, payload, step }) => {
+  try {
+    const response = await fetch('http://localhost:3001/api/playwright', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ url, payload, step })
+    });
+
+    const result = await response.json();
+    return result;
+  } catch (err) {
+    console.error('Playwright 요청 실패:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('close-playwright', async () => {
+  try {
+    const response = await fetch('http://localhost:3001/api/close-playwright', {
+      method: 'POST'
+    });
+    const result = await response.json();
+    return result.success;
+  } catch (err) {
+    console.error('Playwright 종료 실패:', err);
+    return false;
+  }
+});
 
 app.whenReady().then(() => {
   startBackend();

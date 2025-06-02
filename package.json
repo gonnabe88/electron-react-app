@@ -1,54 +1,93 @@
 {
   "name": "electron-react-app",
-  "version": "1.0.0",
-  "main": "electron/main.js",
+  "version": "0.1.0",
+  "private": true,
+  "main": "public/electron.js",
   "description": "",
   "author": "K140024",
   "license": "ISC",
   "scripts": {
-    "dev": "concurrently \"npm run dev-react\" \"npm run dev-electron\"",
-    "dev-react": "cd react-ui && npm run dev",
-    "dev-electron": "wait-on tcp:5173 && electron electron/main.js",
-    "build": "npm run build-react && npm run package",
-    "build-react": "cd react-ui && npm run build",
-    "package": "electron-builder"
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
+    "electron": "electron .",
+    "electron-dev": "concurrently \"cross-env BROWSER=none npm start\" \"wait-on http://localhost:3000 && electron .\"",
+    "electron-pack": "electron-builder -c.extraMetadata.main=build/electron.js",
+    "preelectron-pack": "npm run build",
+    "server": "node server/server.js",
+    "dev": "concurrently \"npm run server\" \"npm run electron-dev\""
   },
   "keywords": [],
   "devDependencies": {
-    "concurrently": "^9.1.2",
-    "electron": "^36.3.1",
-    "electron-builder": "^26.0.12",
-    "wait-on": "^8.0.3"
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^28.2.3",
+    "electron-builder": "^24.9.1",
+    "wait-on": "^7.2.0"
   },
   "build": {
-  "appId": "com.example.electronapp",
-  "productName": "ElectronReactApp",
-  "directories": {
-    "buildResources": "assets"
-  },
-  "files": [
-    "electron/**/*",
-    "react-ui/dist/**/*",
-    "package.json"
-  ],
-  "extraResources": [
-    {
-      "from": "server/server.js",
-      "to": "server/server.js"
+    "appId": "com.electron-react-app",
+    "productName": "ElectronReactApp",
+    "directories": {
+      "buildResources": "assets"
     },
-    {
-      "from": "server/node_modules",
-      "to": "server/node_modules"
+    "files": [
+      "build/**/*",
+      "node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "server/server.js",
+        "to": "server/server.js"
+      },
+      {
+        "from": "server/node_modules",
+        "to": "server/node_modules"
+      }
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
     }
-  ],
-  "asar": true,
-  "win": {
-    "target": ["nsis"],
-    "icon": "assets/icon.ico"
   },
-  "nsis": {
-    "oneClick": false,
-    "allowToChangeInstallationDirectory": true
+  "dependencies": {
+    "@testing-library/jest-dom": "^5.17.0",
+    "@testing-library/react": "^13.4.0",
+    "@testing-library/user-event": "^13.5.0",
+    "cors": "^2.8.5",
+    "electron-is-dev": "^2.0.0",
+    "express": "^4.18.2",
+    "node-fetch": "^2.7.0",
+    "playwright": "^1.42.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-scripts": "5.0.1",
+    "web-vitals": "^2.1.4"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
   }
-}
 }
