@@ -3,34 +3,28 @@ import { settingsManager } from './utils/settingsManager';
 import './App.css';
 
 function App() {
-  const [requestType, setRequestType] = useState('api');
-  const [playwrightStep, setPlaywrightStep] = useState(1);
+  const [requestType, setRequestType] = useState('holiday');
+  const [collectionStep, setCollectionStep] = useState(1);
   const [settings, setSettings] = useState({
-    api: {
+    holiday: {
       baseUrl: '',
       method: 'POST',
       endpoint: '',
       payload: '{}',
       headers: {}
     },
-    sso: {
-      baseUrl: '',
-      method: 'POST',
-      endpoint: '',
-      payload: '{}',
-      headers: {}
-    },
-    playwright: {
-      baseUrl: '',
+    collection: {
       steps: [
         {
-          method: 'POST',
+          baseUrl: '',
+          method: 'GET',
           endpoint: '',
           payload: '{}',
           headers: {}
         },
         {
-          method: 'POST',
+          baseUrl: '',
+          method: 'GET',
           endpoint: '',
           payload: '{}',
           headers: {}
@@ -53,30 +47,29 @@ function App() {
         if (savedSettings) {
           // 저장된 설정을 현재 상태 형식으로 변환
           const formattedSettings = {
-            api: {
-              baseUrl: savedSettings.api.baseUrl || '',
-              method: savedSettings.api.methods?.api || 'POST',
-              endpoint: savedSettings.api.endpoints?.api || '',
-              payload: JSON.stringify(savedSettings.payloads?.api || {}, null, 2),
+            holiday: {
+              baseUrl: savedSettings.holiday?.baseUrl || '',
+              method: savedSettings.holiday?.methods?.holiday || 'POST',
+              endpoint: savedSettings.holiday?.endpoints?.holiday || '',
+              payload: JSON.stringify(savedSettings.payloads?.holiday || {}, null, 2),
               headers: savedSettings.headers || {}
             },
-            sso: {
-              baseUrl: savedSettings.api.baseUrl || '',
-              method: savedSettings.api.methods?.sso || 'POST',
-              endpoint: savedSettings.api.endpoints?.sso || '',
-              payload: JSON.stringify(savedSettings.payloads?.sso || {}, null, 2),
-              headers: savedSettings.headers || {}
-            },
-            playwright: {
-              baseUrl: savedSettings.api.baseUrl || '',
-              steps: savedSettings.payloads?.playwright?.map(step => ({
-                method: step.method || 'POST',
-                endpoint: step.endpoint || '',
-                payload: JSON.stringify(step.payload || {}, null, 2),
-                headers: step.headers || {}
-              })) || [
-                { method: 'POST', endpoint: '', payload: '{}', headers: {} },
-                { method: 'POST', endpoint: '', payload: '{}', headers: {} }
+            collection: {
+              steps: [
+                {
+                  baseUrl: savedSettings.collection?.baseUrls?.step1 || '',
+                  method: 'GET',
+                  endpoint: savedSettings.holiday?.endpoints?.collection || '',
+                  payload: JSON.stringify(savedSettings.payloads?.collection || {}, null, 2),
+                  headers: savedSettings.headers || {}
+                },
+                {
+                  baseUrl: savedSettings.collection?.baseUrls?.step2 || '',
+                  method: 'GET',
+                  endpoint: savedSettings.holiday?.endpoints?.collection2 || '',
+                  payload: JSON.stringify(savedSettings.payloads?.collection2 || {}, null, 2),
+                  headers: savedSettings.headers || {}
+                }
               ]
             }
           };
@@ -98,17 +91,17 @@ function App() {
   // 설정 업데이트 핸들러
   const handleSettingChange = useCallback((type, field, value, stepIndex = null) => {
     setSettings(prevSettings => {
-      if (type === 'playwright' && stepIndex !== null) {
-        // Playwright 단계별 설정 업데이트
-        const updatedSteps = [...prevSettings.playwright.steps];
+      if (type === 'collection' && stepIndex !== null) {
+        // Collection 단계별 설정 업데이트
+        const updatedSteps = [...prevSettings.collection.steps];
         updatedSteps[stepIndex] = {
           ...updatedSteps[stepIndex],
           [field]: value
         };
         return {
           ...prevSettings,
-          playwright: {
-            ...prevSettings.playwright,
+          collection: {
+            ...prevSettings.collection,
             steps: updatedSteps
           }
         };
@@ -129,27 +122,32 @@ function App() {
   const handleSaveSettings = useCallback(async () => {
     try {
       const updatedSettings = {
-        api: {
-          baseUrl: settings.api.baseUrl,
+        holiday: {
+          baseUrl: settings.holiday.baseUrl,
           methods: {
-            api: settings.api.method,
-            sso: settings.sso.method,
-            playwright: settings.playwright.steps[0].method
+            holiday: settings.holiday.method,
+            collection: settings.collection.steps[0].method
           },
           endpoints: {
-            api: settings.api.endpoint,
-            sso: settings.sso.endpoint,
-            playwright: settings.playwright.steps[0].endpoint,
-            playwright2: settings.playwright.steps[1].endpoint
+            holiday: settings.holiday.endpoint,
+            collection: settings.collection.steps[0].endpoint,
+            collection2: settings.collection.steps[1].endpoint
+          }
+        },
+        collection: {
+          baseUrls: {
+            step1: settings.collection.steps[0].baseUrl,
+            step2: settings.collection.steps[1].baseUrl
           }
         },
         payloads: {
-          api: JSON.parse(settings.api.payload),
-          sso: JSON.parse(settings.sso.payload),
-          playwright: JSON.parse(settings.playwright.steps[0].payload),
-          playwright2: JSON.parse(settings.playwright.steps[1].payload)
+          holiday: JSON.parse(settings.holiday.payload),
+          collection: JSON.parse(settings.collection.steps[0].payload),
+          collection2: JSON.parse(settings.collection.steps[1].payload)
         },
-        headers: settings.api.headers
+        headers: typeof settings.holiday.headers === 'string' 
+          ? JSON.parse(settings.holiday.headers) 
+          : settings.holiday.headers
       };
 
       const success = await settingsManager.saveSettings(updatedSettings);
@@ -158,7 +156,7 @@ function App() {
       }
     } catch (err) {
       if (err instanceof SyntaxError) {
-        alert('페이로드가 유효한 JSON 형식이 아닙니다.');
+        alert('JSON 형식이 올바르지 않습니다. Headers와 Payload를 확인해주세요.');
       } else {
         console.error('설정 저장 실패:', err);
         alert('설정 저장 중 오류가 발생했습니다.');
@@ -174,48 +172,46 @@ function App() {
     setLoading(true);
 
     try {
-      if (requestType === 'playwright') {
-        const { baseUrl, steps } = currentSettings;
-        const currentStep = steps[playwrightStep - 1];
-        const { method, endpoint, payload } = currentStep;
+      if (requestType === 'collection') {
+        const { steps } = currentSettings;
+        const currentStep = steps[0]; // 항상 1단계부터 시작
+        const { baseUrl, method, endpoint, payload } = currentStep;
         const url = `${baseUrl}${endpoint}`;
         
-        console.log('Playwright 요청 처리 시작:', { step: playwrightStep, url, method });
+        console.log('자료수집 1단계 시작:', { url, method });
         
         try {
-          const { ipcRenderer } = window.require('electron');
-          
-          // 1단계 요청 실행
-          if (playwrightStep === 1) {
-            console.log('1단계 요청 실행:', url);
-            const result = await ipcRenderer.invoke('run-playwright', {
-              url,
-              payload: method !== 'GET' ? JSON.parse(payload) : null,
-              step: 1
-            });
+          // 1단계 요청 실행 (Playwright 사용)
+          console.log('1단계 요청 실행:', url);
+          const result = await window.electron.runPlaywright({
+            url,
+            payload: method !== 'GET' ? JSON.parse(payload) : null,
+            step: 1
+          });
 
-            if (!result.success) {
-              throw new Error(result.error || '1단계 실행 실패');
-            }
+          if (!result.success) {
+            throw new Error(result.error || '1단계 실행 실패');
+          }
 
-            // 1단계 응답 처리
-            const firstResponse = {
-              ...result.data,
-              currentUrl: url,
-              step: 1
-            };
-            setResponse(firstResponse);
-            console.log('1단계 응답 처리 완료:', firstResponse);
+          // 1단계 응답 처리
+          const firstResponse = {
+            ...result,
+            currentUrl: url,
+            step: 1
+          };
+          setResponse(firstResponse);
+          console.log('1단계 응답 처리 완료:', firstResponse);
 
-            // 2단계 요청 자동 실행
-            const nextStep = steps[1];
-            const nextUrl = `${baseUrl}${nextStep.endpoint}`;
+          // 2단계 URL이 설정되어 있는 경우 자동 실행
+          const nextStep = steps[1];
+          if (nextStep.baseUrl && nextStep.endpoint) {
+            const nextUrl = `${nextStep.baseUrl}${nextStep.endpoint}`;
             console.log('2단계 요청 실행:', nextUrl);
             
             // 상태 업데이트를 강제하기 위해 약간의 지연 추가
             await new Promise(resolve => setTimeout(resolve, 100));
             
-            const nextResult = await ipcRenderer.invoke('run-playwright', {
+            const nextResult = await window.electron.runPlaywright({
               url: nextUrl,
               payload: nextStep.method !== 'GET' ? JSON.parse(nextStep.payload) : null,
               step: 2
@@ -226,41 +222,29 @@ function App() {
             }
 
             // 2단계 응답 처리
-            setPlaywrightStep(2);
+            setCollectionStep(2);
             setResponse({
-              ...nextResult.data,
-              currentUrl: nextUrl
-            });
-            
-            // 성공한 요청의 설정 저장
-            await handleSaveSettings();
-          } else {
-            // 2단계 직접 실행
-            console.log('2단계 직접 실행:', url);
-            const result = await ipcRenderer.invoke('run-playwright', {
-              url,
-              payload: method !== 'GET' ? JSON.parse(payload) : null,
+              ...nextResult,
+              currentUrl: nextUrl,
               step: 2
             });
-
-            if (!result.success) {
-              throw new Error(result.error || '2단계 실행 실패');
-            }
-
-            setResponse({
-              ...result.data,
-              currentUrl: url
-            });
           }
+          
+          // 성공한 요청의 설정 저장
+          await handleSaveSettings();
+          
         } catch (err) {
-          console.error('Playwright 요청 실패:', err);
-          throw new Error(`Playwright 실행 중 오류 발생: ${err.message}`);
+          console.error('자료수집 요청 실패:', err);
+          throw new Error(`자료수집 실행 중 오류 발생: ${err.message}`);
+        } finally {
+          // 브라우저 종료
+          await window.electron.closePlaywright().catch(console.error);
         }
       } else {
-        // 일반 API 요청 처리
+        // 휴일체크 API 요청 처리
         const { baseUrl, endpoint, method, payload, headers } = currentSettings;
         const url = `${baseUrl}${endpoint}`;
-        console.log('요청 시작:', { url, method, requestType, step: playwrightStep });
+        console.log('요청 시작:', { url, method, requestType });
 
         const fetchResponse = await fetch(url, {
           method,
@@ -302,7 +286,7 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [currentSettings, requestType, playwrightStep, handleSaveSettings]);
+  }, [currentSettings, requestType, handleSaveSettings]);
 
   // 설정 초기화
   const handleResetSettings = useCallback(async () => {
@@ -313,56 +297,35 @@ function App() {
         if (savedSettings) {
           // 저장된 설정을 현재 상태 형식으로 변환
           const formattedSettings = {
-            api: {
-              baseUrl: savedSettings.api.baseUrl || '',
-              method: savedSettings.api.methods?.api || 'POST',
-              endpoint: savedSettings.api.endpoints?.api || '',
-              payload: JSON.stringify(savedSettings.payloads?.api || {}, null, 2),
+            holiday: {
+              baseUrl: savedSettings.holiday?.baseUrl || '',
+              method: savedSettings.holiday?.methods?.holiday || 'POST',
+              endpoint: savedSettings.holiday?.endpoints?.holiday || '',
+              payload: JSON.stringify(savedSettings.payloads?.holiday || {}, null, 2),
               headers: savedSettings.headers || {}
             },
-            sso: {
-              baseUrl: savedSettings.api.baseUrl || '',
-              method: savedSettings.api.methods?.sso || 'POST',
-              endpoint: savedSettings.api.endpoints?.sso || '',
-              payload: JSON.stringify(savedSettings.payloads?.sso || {}, null, 2),
-              headers: savedSettings.headers || {}
-            },
-            playwright: {
-              baseUrl: savedSettings.api.baseUrl || '',
-              steps: savedSettings.payloads?.playwright?.map(step => ({
-                method: step.method || 'POST',
-                endpoint: step.endpoint || '',
-                payload: JSON.stringify(step.payload || {}, null, 2),
-                headers: step.headers || {}
-              })) || [
-                { method: 'POST', endpoint: '', payload: '{}', headers: {} },
-                { method: 'POST', endpoint: '', payload: '{}', headers: {} }
+            collection: {
+              steps: [
+                {
+                  baseUrl: savedSettings.collection?.baseUrls?.step1 || '',
+                  method: 'GET',
+                  endpoint: savedSettings.holiday?.endpoints?.collection || '',
+                  payload: JSON.stringify(savedSettings.payloads?.collection || {}, null, 2),
+                  headers: savedSettings.headers || {}
+                },
+                {
+                  baseUrl: savedSettings.collection?.baseUrls?.step2 || '',
+                  method: 'GET',
+                  endpoint: savedSettings.holiday?.endpoints?.collection2 || '',
+                  payload: JSON.stringify(savedSettings.payloads?.collection2 || {}, null, 2),
+                  headers: savedSettings.headers || {}
+                }
               ]
             }
           };
           setSettings(formattedSettings);
         }
       }
-    }
-  }, []);
-
-  // Playwright 단계 초기화
-  const handleResetPlaywrightStep = useCallback(() => {
-    setPlaywrightStep(1);
-  }, []);
-
-  // Playwright 브라우저 종료
-  const handleClosePlaywright = useCallback(async () => {
-    try {
-      const { ipcRenderer } = window.require('electron');
-      const success = await ipcRenderer.invoke('close-playwright');
-      if (success) {
-        console.log('Playwright 브라우저가 종료되었습니다.');
-        setPlaywrightStep(1); // 브라우저 종료 시 단계도 초기화
-      }
-    } catch (err) {
-      console.error('브라우저 종료 실패:', err);
-      setError('브라우저 종료 중 오류가 발생했습니다.');
     }
   }, []);
 
@@ -377,82 +340,63 @@ function App() {
               <input
                 type="radio"
                 name="requestType"
-                value="api"
-                checked={requestType === 'api'}
+                value="holiday"
+                checked={requestType === 'holiday'}
                 onChange={(e) => handleRequestTypeChange(e.target.value)}
                 disabled={loading}
               />
-              <span className="radio-text">일반 API 요청</span>
+              <span className="radio-text">휴일체크</span>
             </label>
             <label className="radio-label">
               <input
                 type="radio"
                 name="requestType"
-                value="sso"
-                checked={requestType === 'sso'}
+                value="collection"
+                checked={requestType === 'collection'}
                 onChange={(e) => handleRequestTypeChange(e.target.value)}
                 disabled={loading}
               />
-              <span className="radio-text">SSO API 요청</span>
-            </label>
-            <label className="radio-label">
-              <input
-                type="radio"
-                name="requestType"
-                value="playwright"
-                checked={requestType === 'playwright'}
-                onChange={(e) => handleRequestTypeChange(e.target.value)}
-                disabled={loading}
-              />
-              <span className="radio-text">Playwright 요청</span>
+              <span className="radio-text">자료수집</span>
             </label>
           </div>
-          {requestType === 'playwright' && (
-            <div className="playwright-controls">
-              <div className="step-indicator">
-                현재 단계: {playwrightStep}단계
-              </div>
-              <button 
-                onClick={handleResetPlaywrightStep}
-                className="reset-step-button"
-                disabled={loading || playwrightStep === 1}
-              >
-                단계 초기화
-              </button>
-              <button 
-                onClick={handleClosePlaywright}
-                className="close-browser-button"
-                disabled={loading}
-              >
-                브라우저 종료
-              </button>
-            </div>
-          )}
         </div>
 
         <form onSubmit={handleSubmit} className="request-form">
-          <div className="input-group">
-            <label>Base URL:</label>
-            <input
-              type="text"
-              value={currentSettings.baseUrl}
-              onChange={(e) => handleSettingChange(requestType, 'baseUrl', e.target.value)}
-              placeholder="Base URL 입력 (예: http://localhost:3001)"
-              required
-              disabled={loading}
-            />
-          </div>
+          {requestType === 'holiday' && (
+            <div className="input-group">
+              <label>Base URL:</label>
+              <input
+                type="text"
+                value={currentSettings.baseUrl}
+                onChange={(e) => handleSettingChange(requestType, 'baseUrl', e.target.value)}
+                placeholder="Base URL 입력 (예: http://localhost:3001)"
+                required
+                disabled={loading}
+              />
+            </div>
+          )}
 
-          {requestType === 'playwright' ? (
-            // Playwright 단계별 설정
+          {requestType === 'collection' ? (
+            // Collection 단계별 설정
             currentSettings.steps.map((step, index) => (
-              <div key={index} className="playwright-step">
-                <h3>{index + 1}단계 설정</h3>
+              <div key={index} className="collection-step">
+                <h3>{index + 1}단계 설정{index === 1 && ' (선택)'}</h3>
                 <div className="input-group">
-                  <label>Method:</label>
+                  <label>Base URL:{index === 1 && ' (선택)'}</label>
+                  <input
+                    type="text"
+                    value={step.baseUrl}
+                    onChange={(e) => handleSettingChange('collection', 'baseUrl', e.target.value, index)}
+                    placeholder={`${index + 1}단계 Base URL 입력 (예: http://localhost:3001)`}
+                    required={index === 0}
+                    disabled={loading}
+                  />
+                </div>
+                <div className="input-group">
+                  <label>Method:{index === 1 && ' (선택)'}</label>
                   <select 
                     value={step.method} 
-                    onChange={(e) => handleSettingChange('playwright', 'method', e.target.value, index)}
+                    onChange={(e) => handleSettingChange('collection', 'method', e.target.value, index)}
                     disabled={loading}
                   >
                     <option value="GET">GET</option>
@@ -463,27 +407,29 @@ function App() {
                 </div>
 
                 <div className="input-group">
-                  <label>Endpoint:</label>
+                  <label>Endpoint:{index === 1 && ' (선택)'}</label>
                   <input
                     type="text"
                     value={step.endpoint}
-                    onChange={(e) => handleSettingChange('playwright', 'endpoint', e.target.value, index)}
+                    onChange={(e) => handleSettingChange('collection', 'endpoint', e.target.value, index)}
                     placeholder={`${index + 1}단계 Endpoint 입력`}
-                    required
+                    required={index === 0}
                     disabled={loading}
                   />
                 </div>
 
                 <div className="input-group">
-                  <label>Headers:</label>
+                  <label>Headers:{index === 1 && ' (선택)'}</label>
                   <textarea
-                    value={JSON.stringify(step.headers, null, 2)}
+                    value={typeof step.headers === 'string' 
+                      ? step.headers 
+                      : JSON.stringify(step.headers, null, 2)}
                     onChange={(e) => {
                       try {
-                        const newHeaders = JSON.parse(e.target.value);
-                        handleSettingChange('playwright', 'headers', newHeaders, index);
+                        const parsedHeaders = JSON.parse(e.target.value);
+                        handleSettingChange('collection', 'headers', parsedHeaders, index);
                       } catch (err) {
-                        handleSettingChange('playwright', 'headers', e.target.value, index);
+                        handleSettingChange('collection', 'headers', e.target.value, index);
                       }
                     }}
                     placeholder="JSON 형식의 헤더 입력"
@@ -493,10 +439,10 @@ function App() {
                 </div>
 
                 <div className="input-group">
-                  <label>Payload:</label>
+                  <label>Payload:{index === 1 && ' (선택)'}</label>
                   <textarea
                     value={step.payload}
-                    onChange={(e) => handleSettingChange('playwright', 'payload', e.target.value, index)}
+                    onChange={(e) => handleSettingChange('collection', 'payload', e.target.value, index)}
                     placeholder="JSON 형식의 페이로드 입력"
                     rows="5"
                     disabled={loading}
@@ -536,12 +482,16 @@ function App() {
               <div className="input-group">
                 <label>Headers:</label>
                 <textarea
-                  value={JSON.stringify(currentSettings.headers, null, 2)}
+                  value={typeof currentSettings.headers === 'string' 
+                    ? currentSettings.headers 
+                    : JSON.stringify(currentSettings.headers, null, 2)}
                   onChange={(e) => {
                     try {
-                      const newHeaders = JSON.parse(e.target.value);
-                      handleSettingChange(requestType, 'headers', newHeaders);
+                      // 입력값이 유효한 JSON인지 확인
+                      const parsedHeaders = JSON.parse(e.target.value);
+                      handleSettingChange(requestType, 'headers', parsedHeaders);
                     } catch (err) {
+                      // JSON이 아닌 경우 문자열 그대로 저장
                       handleSettingChange(requestType, 'headers', e.target.value);
                     }
                   }}
@@ -566,7 +516,7 @@ function App() {
 
           <div className="button-group">
             <button type="submit" disabled={loading}>
-              {loading ? '요청 중...' : `요청 보내기 (${requestType === 'playwright' ? `${playwrightStep}단계` : ''})`}
+              {loading ? '요청 중...' : `요청 보내기`}
             </button>
             <button 
               type="button" 
@@ -598,7 +548,7 @@ function App() {
             <div className="response-info">
               <p>Status: {response.status} {response.statusText}</p>
               <p>Current URL: {response.currentUrl}</p>
-              <p>Current Step: {playwrightStep}</p>
+              <p>Current Step: {collectionStep}</p>
               <h4>Headers:</h4>
               <pre className="response-headers">
                 {JSON.stringify(response.headers, null, 2)}

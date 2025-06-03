@@ -13,18 +13,60 @@ function createWindow() {
     width: 1000,
     height: 700,
     webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
+      sandbox: false,
+      webSecurity: true
     },
   });
 
-  const devURL = 'http://localhost:5173';
+  // Content-Security-Policy 설정
+  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': ["default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';"]
+      }
+    });
+  });
+
+  const devURL = 'http://localhost:3000';
   const prodPath = path.join(__dirname, '..', 'react-ui', 'dist', 'index.html');
 
   if (isDev) {
+    // 개발 모드에서 CORS 및 보안 정책 설정
+    mainWindow.webContents.session.webRequest.onBeforeSendHeaders(
+      (details, callback) => {
+        callback({ requestHeaders: { ...details.requestHeaders } });
+      }
+    );
+
     mainWindow.loadURL(devURL);
+    mainWindow.webContents.openDevTools();
+    
+    // 로드 상태 모니터링
+    mainWindow.webContents.on('did-start-loading', () => {
+      console.log('페이지 로딩 시작');
+    });
+
+    mainWindow.webContents.on('did-finish-load', () => {
+      console.log('페이지 로딩 완료');
+      // preload 스크립트가 정상적으로 로드되었는지 확인
+      mainWindow.webContents.executeJavaScript(`
+        console.log('window.electron 상태:', window.electron ? '로드됨' : '로드되지 않음');
+      `);
+    });
+
+    mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+      console.error('페이지 로드 실패:', errorCode, errorDescription);
+    });
   } else {
     mainWindow.loadFile(prodPath);
   }
+
+  // preload 스크립트 로드 확인
+  console.log('Preload 스크립트 경로:', path.join(__dirname, 'preload.js'));
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -68,10 +110,12 @@ function startBackend() {
   });
 }
 
-// IPC 핸들러 등록
+// Playwright 요청 처리
 ipcMain.handle('run-playwright', async (event, { url, payload, step }) => {
   try {
-    const response = await fetch('http://localhost:3001/api/playwright', {
+    console.log(`Playwright ${step}단계 요청:`, { url, payload });
+    
+    const response = await fetch('http://localhost:3001/api/collect', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -79,25 +123,96 @@ ipcMain.handle('run-playwright', async (event, { url, payload, step }) => {
       body: JSON.stringify({ url, payload, step })
     });
 
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+    }
+
     const result = await response.json();
+    console.log(`Playwright ${step}단계 응답`);
+
     return result;
-  } catch (err) {
-    console.error('Playwright 요청 실패:', err);
-    return { success: false, error: err.message };
+  } catch (error) {
+    console.error('Playwright 요청 실패:', error);
+    return {
+      success: false,
+      error: error.message,
+      logs: []
+    };
   }
 });
 
+// Playwright 브라우저 종료
 ipcMain.handle('close-playwright', async () => {
   try {
-    const response = await fetch('http://localhost:3001/api/close-playwright', {
+    const response = await fetch('http://localhost:3001/api/collect/close', {
       method: 'POST'
     });
     const result = await response.json();
     return result.success;
-  } catch (err) {
-    console.error('Playwright 종료 실패:', err);
+  } catch (error) {
+    console.error('Playwright 브라우저 종료 실패:', error);
     return false;
   }
+});
+
+// 자료수집 요청 처리
+ipcMain.handle('run-collection', async (event, { url, payload, step }) => {
+  try {
+    console.log(`자료수집 ${step}단계 요청:`, { url, payload });
+    
+    const response = await fetch(url, {
+      method: payload ? 'POST' : 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: payload ? JSON.stringify(payload) : undefined
+    });
+
+    const contentType = response.headers.get('content-type');
+    let data;
+    
+    if (contentType && contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      data = await response.text();
+    }
+
+    console.log(`자료수집 ${step}단계 응답:`, data);
+
+    return {
+      success: true,
+      data: {
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries()),
+        data: data
+      }
+    };
+  } catch (error) {
+    console.error('자료수집 요청 실패:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+// 자료수집 브라우저 종료
+ipcMain.handle('close-collection', async () => {
+  try {
+    // 브라우저 종료 로직 구현
+    return true;
+  } catch (error) {
+    console.error('브라우저 종료 실패:', error);
+    return false;
+  }
+});
+
+// getAppPath 핸들러 추가
+ipcMain.handle('get-app-path', () => {
+  return app.getPath('userData');
 });
 
 app.whenReady().then(() => {

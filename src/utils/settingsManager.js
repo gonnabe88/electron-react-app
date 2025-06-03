@@ -1,70 +1,54 @@
-const { ipcRenderer } = window.require('electron');
+const SETTINGS_FILE = 'settings.json';
 
-// 설정 로드
-const loadSettings = async () => {
-  try {
-    return await ipcRenderer.invoke('load-settings');
-  } catch (error) {
-    console.error('설정 로드 실패:', error);
-    return null;
+class SettingsManager {
+  constructor() {
+    this.electron = window.electron;
   }
-};
 
-// 설정 저장
-const saveSettings = async (settings) => {
-  try {
-    return await ipcRenderer.invoke('save-settings', settings);
-  } catch (error) {
-    console.error('설정 저장 실패:', error);
-    return false;
+  async getSettingsPath() {
+    const userDataPath = await this.electron.getAppPath();
+    return this.electron.path.join(userDataPath, SETTINGS_FILE);
   }
-};
 
-// 마지막 사용 설정 업데이트
-const updateLastUsed = async (url, method, payload) => {
-  try {
-    return await ipcRenderer.invoke('update-last-used', { url, method, payload });
-  } catch (error) {
-    console.error('마지막 사용 설정 업데이트 실패:', error);
-    return false;
+  async loadSettings() {
+    try {
+      const settingsPath = await this.getSettingsPath();
+      
+      if (!this.electron.fs.existsSync(settingsPath)) {
+        return null;
+      }
+
+      const data = this.electron.fs.readFileSync(settingsPath, 'utf8');
+      return JSON.parse(data);
+    } catch (error) {
+      console.error('설정 로드 실패:', error);
+      return null;
+    }
   }
-};
 
-// 특정 엔드포인트의 페이로드 가져오기
-const getPayload = async (endpoint) => {
-  try {
-    return await ipcRenderer.invoke('get-payload', endpoint);
-  } catch (error) {
-    console.error('페이로드 가져오기 실패:', error);
-    return {};
+  async saveSettings(settings) {
+    try {
+      const settingsPath = await this.getSettingsPath();
+      this.electron.fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+      return true;
+    } catch (error) {
+      console.error('설정 저장 실패:', error);
+      return false;
+    }
   }
-};
 
-// 특정 엔드포인트의 페이로드 업데이트
-const updatePayload = async (endpoint, payload) => {
-  try {
-    return await ipcRenderer.invoke('update-payload', { endpoint, payload });
-  } catch (error) {
-    console.error('페이로드 업데이트 실패:', error);
-    return false;
+  async resetSettings() {
+    try {
+      const settingsPath = await this.getSettingsPath();
+      if (this.electron.fs.existsSync(settingsPath)) {
+        this.electron.fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2));
+      }
+      return true;
+    } catch (error) {
+      console.error('설정 초기화 실패:', error);
+      return false;
+    }
   }
-};
+}
 
-// 전체 설정 초기화
-const resetSettings = async () => {
-  try {
-    return await ipcRenderer.invoke('reset-settings');
-  } catch (error) {
-    console.error('설정 초기화 실패:', error);
-    return false;
-  }
-};
-
-export const settingsManager = {
-  loadSettings,
-  saveSettings,
-  updateLastUsed,
-  getPayload,
-  updatePayload,
-  resetSettings
-}; 
+export const settingsManager = new SettingsManager(); 

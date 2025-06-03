@@ -12,7 +12,13 @@ const PORT = 3001;
 // 로그 파일 경로
 const LOG_FILE = path.join(__dirname, 'server-debug.log');
 
-// Playwright 브라우저 인스턴스 전역 변수
+// 다운로드 디렉토리 생성
+const DOWNLOADS_DIR = path.join(__dirname, 'downloads');
+if (!fs.existsSync(DOWNLOADS_DIR)) {
+  fs.mkdirSync(DOWNLOADS_DIR);
+}
+
+// 브라우저 인스턴스 전역 변수
 let browser = null;
 let context = null;
 let page = null;
@@ -25,51 +31,69 @@ const logToFile = (message) => {
   process.stdout.write(logMessage);
 };
 
-// Playwright 브라우저 초기화 함수
-async function initPlaywright() {
+// 브라우저 초기화 함수
+async function initBrowser() {
   if (!isInitialized) {
-    logToFile('🔸 Playwright 브라우저 초기화');
+    logToFile('🔸 자료수집 브라우저 초기화 시작');
     try {
       // 이전 인스턴스가 있다면 정리
       if (browser) {
         logToFile('🔸 이전 브라우저 인스턴스 정리');
-        await closePlaywright();
+        await closeBrowser();
       }
 
+      logToFile('🔸 새 브라우저 인스턴스 생성 시작');
       browser = await chromium.launch({
         headless: false,
         slowMo: 100,
-        args: ['--start-maximized']
+        args: [
+          '--start-maximized',
+          '--disable-web-security',
+          '--disable-features=IsolateOrigins,site-per-process'
+        ]
       });
+      logToFile('✅ 브라우저 인스턴스 생성 완료');
 
+      logToFile('🔸 브라우저 컨텍스트 생성 시작');
       context = await browser.newContext({
         viewport: null,
+        acceptDownloads: true,
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       });
+      logToFile('✅ 브라우저 컨텍스트 생성 완료');
 
       // 새 페이지 생성
+      logToFile('🔸 새 페이지 생성 시작');
       page = await context.newPage();
+      logToFile('✅ 새 페이지 생성 완료');
       
       // 페이지 이벤트 리스너 설정
       page.on('console', msg => logToFile(`🔸 브라우저 콘솔: ${msg.text()}`));
       page.on('pageerror', err => logToFile(`❌ 페이지 에러: ${err.message}`));
       page.on('request', req => logToFile(`📤 요청: ${req.method()} ${req.url()}`));
       page.on('response', res => logToFile(`📥 응답: ${res.status()} ${res.url()}`));
+      page.on('dialog', dialog => {
+        logToFile(`🔸 다이얼로그 감지: ${dialog.type()} - ${dialog.message()}`);
+        dialog.accept();
+      });
 
       isInitialized = true;
-      logToFile('✅ Playwright 브라우저 초기화 완료');
+      logToFile('✅ 자료수집 브라우저 초기화 완료');
     } catch (err) {
-      logToFile(`❌ Playwright 초기화 실패: ${err.message}`);
+      logToFile(`❌ 브라우저 초기화 실패: ${err.message}`);
+      logToFile(err.stack);
       throw err;
     }
+  } else {
+    logToFile('ℹ️ 기존 브라우저 인스턴스 재사용');
   }
   return { browser, context, page };
 }
 
-// Playwright 브라우저 종료 함수
-async function closePlaywright() {
+// 브라우저 종료 함수
+async function closeBrowser() {
   if (browser) {
-    logToFile('🔸 Playwright 브라우저 종료');
+    logToFile('🔸 자료수집 브라우저 종료');
     try {
       if (page) {
         await page.close().catch(() => {});
@@ -82,9 +106,9 @@ async function closePlaywright() {
       await browser.close();
       browser = null;
       isInitialized = false;
-      logToFile('✅ Playwright 브라우저 종료 완료');
+      logToFile('✅ 자료수집 브라우저 종료 완료');
     } catch (err) {
-      logToFile(`❌ Playwright 종료 실패: ${err.message}`);
+      logToFile(`❌ 브라우저 종료 실패: ${err.message}`);
       throw err;
     }
   }
@@ -190,7 +214,7 @@ app.post('/api/test', async (req, res) => {
       logToFile('🔸 Playwright 브라우저 시작');
       log.push('🔸 Playwright 브라우저 시작');
       
-      const { page } = await initPlaywright();
+      const { page } = await initBrowser();
 
       try {
         // URL5 GET 요청
@@ -240,7 +264,7 @@ app.post('/api/test', async (req, res) => {
         });
 
       } finally {
-        await closePlaywright();
+        await closeBrowser();
         logToFile('🔸 Playwright 브라우저 종료');
         log.push('🔸 Playwright 브라우저 종료');
       }
@@ -435,133 +459,143 @@ app.post('/api/test', async (req, res) => {
   }
 });
 
-// Playwright 요청 처리 엔드포인트
-app.post('/api/playwright', async (req, res) => {
+app.post('/api/collect', async (req, res) => {
+  logToFile('📦 자료수집 요청 시작 - 요청 본문: ' + JSON.stringify(req.body, null, 2));
   const { url, payload, step } = req.body;
   const log = [];
 
   try {
-    // 각 단계마다 새로운 페이지 생성
-    if (page) {
-      logToFile('🔸 이전 페이지 닫기');
-      await page.close().catch(() => {});
-      page = null;
-    }
-
-    const { browser, context } = await initPlaywright();
-    if (!browser || !context) {
-      throw new Error('Playwright 브라우저가 초기화되지 않았습니다.');
-    }
-
-    // 새 페이지 생성
-    page = await context.newPage();
-    logToFile(`🔸 새 페이지 생성 (${step}단계)`);
-    
-    // 페이지 이벤트 리스너 설정
-    page.on('console', msg => logToFile(`🔸 브라우저 콘솔: ${msg.text()}`));
-    page.on('pageerror', err => logToFile(`❌ 페이지 에러: ${err.message}`));
-    page.on('request', req => logToFile(`📤 요청: ${req.method()} ${req.url()}`));
-    page.on('response', res => logToFile(`📥 응답: ${res.status()} ${res.url()}`));
-
-    logToFile(`🔸 Playwright ${step}단계 요청 시작: ${url}`);
-    log.push(`🔸 ${step}단계 요청 시작: ${url}`);
-
-    try {
-      // 페이지 이동 전 타임아웃 설정
-      page.setDefaultTimeout(30000);
-      page.setDefaultNavigationTimeout(30000);
-
-      // 모든 요청 허용
-      await page.route('**/*', async (route) => {
-        await route.continue();
-      });
-
-      // 페이지 이동 전 준비
-      await page.evaluate(() => {
-        // 페이지 이동 방지 이벤트 제거
-        window.onbeforeunload = null;
-        // 모든 팝업 차단 해제
-        window.open = (url) => {
-          window.location.href = url;
-          return null;
-        };
-      });
-
-      // 페이지 이동 시도
-      logToFile(`🔸 페이지 이동 시도: ${url}`);
-      await page.goto(url, {
-        waitUntil: ['networkidle', 'domcontentloaded', 'load'],
-        timeout: 30000
-      });
-
-      // 페이지 로드 완료 대기
-      await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {
-        logToFile('⚠️ networkidle 타임아웃, 계속 진행');
-      });
-
-      // 페이지가 완전히 로드될 때까지 대기
-      await page.evaluate(() => {
-        return new Promise((resolve) => {
-          if (document.readyState === 'complete') {
-            resolve();
-          } else {
-            window.addEventListener('load', resolve);
-          }
-        });
-      });
-
-      // 페이지 스크롤 처리
-      await page.evaluate(() => {
-        return new Promise((resolve) => {
-          let lastScroll = 0;
-          const checkScroll = () => {
-            const currentScroll = window.scrollY;
-            if (currentScroll === lastScroll) {
-              resolve();
-            } else {
-              lastScroll = currentScroll;
-              window.scrollTo(0, document.body.scrollHeight);
-              setTimeout(checkScroll, 100);
-            }
-          };
-          checkScroll();
-        });
-      }).catch(() => {
-        logToFile('⚠️ 스크롤 처리 실패, 계속 진행');
-      });
-
-      // 최종 URL 확인
-      const finalUrl = page.url();
-      logToFile(`🔗 최종 URL: ${finalUrl}`);
-
-      // 페이지 내용 가져오기
-      const content = await page.content();
-      const cookies = await context.cookies();
-      
-      logToFile(`✅ ${step}단계 요청 완료`);
-      log.push(`✅ ${step}단계 요청 완료`);
-
-      res.send({
-        success: true,
-        data: {
-          status: 200,
-          statusText: 'OK',
-          headers: {},
-          data: content,
-          currentUrl: finalUrl,
-          beforeUrl: url
-        },
+    if (!url) {
+      const error = '수집할 URL이 필요합니다.';
+      logToFile(`❌ ${error}`);
+      return res.status(400).json({
+        success: false,
+        error,
         logs: log
       });
-
-    } catch (err) {
-      logToFile(`❌ 페이지 이동 실패: ${err.message}`);
-      throw new Error(`페이지 이동 실패: ${err.message}`);
     }
 
+    logToFile(`🔸 자료수집 ${step}단계 시작`);
+    log.push(`🔸 자료수집 ${step}단계 시작`);
+    
+    let browserInstance;
+    try {
+      browserInstance = await initBrowser();
+      const { page: currentPage } = browserInstance;
+      logToFile('✅ 브라우저 인스턴스 획득 완료');
+
+      // URL로 이동
+      logToFile(`🔸 페이지 이동 시작: ${url}`);
+      log.push(`🔸 페이지 이동: ${url}`);
+      
+      await currentPage.goto(url, { 
+        waitUntil: 'networkidle',
+        timeout: 30000 
+      });
+      logToFile('✅ 페이지 이동 완료');
+
+      // 1단계인 경우 select 값 설정 및 검색 버튼 클릭
+      if (step === 1) {
+        logToFile('1단계: select 값 설정 및 검색 버튼 클릭 시작');
+        try {
+          // docSSyIkdCd select 값 설정
+          await currentPage.selectOption('#docSSyIkdCd', 'SR');
+          logToFile('docSSyIkdCd 값 설정 완료: SR');
+
+          // docSylId select 값 설정
+          await currentPage.selectOption('#docSylId', 'S0051');
+          logToFile('docSylId 값 설정 완료: S0051');
+
+          // 검색 버튼 클릭
+          await currentPage.click('#search');
+          logToFile('검색 버튼 클릭 완료');
+
+          // 검색 결과 로딩 대기
+          await currentPage.waitForLoadState('networkidle');
+          logToFile('검색 결과 로딩 완료');
+
+          // 다운로드 버튼 클릭
+          await currentPage.click('#down');
+          logToFile('다운로드 버튼 클릭 완료');
+
+          // 새 창이 열릴 때까지 대기
+          const [newPage] = await Promise.all([
+            currentPage.context().waitForEvent('page'),
+            currentPage.waitForTimeout(1000) // 새 창이 열릴 때까지 잠시 대기
+          ]);
+          logToFile('새 창 열림 감지');
+
+          // 새 창으로 전환
+          await newPage.waitForLoadState('networkidle');
+          logToFile('새 창 로딩 완료');
+
+          // title이 "PDF 저장"인 버튼 찾아서 클릭
+          const pdfButton = await newPage.locator('button[title="PDF 저장"]');
+          if (await pdfButton.count() > 0) {
+            const buttonId = await pdfButton.getAttribute('id');
+            logToFile('PDF 저장 버튼 ID: ' + buttonId);
+
+            // 다운로드 이벤트 대기
+            const downloadPromise = newPage.waitForEvent('download');
+            await pdfButton.click();
+            logToFile('PDF 저장 버튼 클릭 완료');
+
+            // 다운로드 완료 대기 및 파일 저장
+            const download = await downloadPromise;
+            logToFile('PDF 다운로드 시작: ' + download.suggestedFilename());
+            
+            try {
+              // 다운로드된 파일 저장 (원본 파일명 그대로 사용)
+              await download.saveAs(download.suggestedFilename());
+              logToFile('PDF 파일 저장 완료: ' + download.suggestedFilename());
+
+              // 파일 내용을 base64로 변환하여 클라이언트에 전송
+              const fileContent = fs.readFileSync(download.suggestedFilename(), { encoding: 'base64' });
+              logToFile('파일 내용 base64 인코딩 완료');
+
+              // 새 창 닫기
+              await newPage.close();
+              logToFile('새 창 닫기 완료');
+              
+              res.json({
+                success: true,
+                content: fileContent,
+                filename: download.suggestedFilename(),
+                logs: log
+              });
+              logToFile('클라이언트로 응답 전송 완료');
+            } catch (error) {
+              logToFile('PDF 파일 저장 중 에러: ' + error.message);
+              console.error('PDF 파일 저장 중 에러:', error);
+              throw error;
+            }
+          } else {
+            throw new Error('PDF 저장 버튼을 찾을 수 없습니다.');
+          }
+        } catch (error) {
+          logToFile('1단계 작업 중 에러: ' + error.message);
+          console.error('1단계 작업 중 에러:', error);
+          throw error;
+        }
+      } else {
+        // 2단계 또는 기타 처리
+        const content = await currentPage.content();
+        logToFile('✅ 자료수집 완료');
+        log.push('✅ 자료수집 완료');
+
+        res.json({
+          success: true,
+          content,
+          logs: log
+        });
+      }
+    } catch (err) {
+      logToFile(`❌ 자료수집 실패: ${err.message}`);
+      throw err;
+    }
   } catch (err) {
-    logToFile(`❌ Playwright 요청 실패: ${err.message}`);
-    res.status(500).send({
+    logToFile(`❌ 오류 발생: ${err.message}`);
+    res.status(500).json({
       success: false,
       error: err.message,
       logs: log
@@ -569,19 +603,48 @@ app.post('/api/playwright', async (req, res) => {
   }
 });
 
-// Playwright 브라우저 종료 엔드포인트
-app.post('/api/close-playwright', async (req, res) => {
+// 브라우저 종료 엔드포인트
+app.post('/api/collect/close', async (req, res) => {
   try {
-    await closePlaywright();
-    res.send({ success: true });
+    await closeBrowser();
+    res.json({ success: true });
   } catch (err) {
-    logToFile(`❌ Playwright 종료 실패: ${err.message}`);
-    res.status(500).send({ success: false, error: err.message });
+    logToFile(`❌ 브라우저 종료 실패: ${err.message}`);
+    res.status(500).json({ 
+      success: false, 
+      error: err.message 
+    });
   }
 });
 
-const server = app.listen(PORT, () => {
-  logToFile(`✅ 서버 실행 중: http://localhost:${PORT}`);
+const startServer = (port) => {
+  return new Promise((resolve, reject) => {
+    try {
+      const server = app.listen(port, () => {
+        console.log(`[${new Date().toISOString()}] ✅ 서버 실행 중: http://localhost:${port}`);
+        resolve(server);
+      });
+
+      server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+          console.log(`[${new Date().toISOString()}] 포트 ${port}가 사용 중입니다. 다른 포트 시도...`);
+          server.close();
+          startServer(port + 1).then(resolve).catch(reject);
+        } else {
+          reject(err);
+        }
+      });
+    } catch (err) {
+      reject(err);
+    }
+  });
+};
+
+// 서버 시작
+console.log(`[${new Date().toISOString()}] 서버 초기화 중...`);
+startServer(3001).catch(err => {
+  console.error(`[${new Date().toISOString()}] ❌ 처리되지 않은 예외 발생:`, err.message);
+  process.exit(1);
 });
 
 // 서버 종료 함수

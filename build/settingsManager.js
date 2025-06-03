@@ -5,34 +5,30 @@ const { app, ipcMain } = require('electron');
 // 설정 파일 경로
 const SETTINGS_PATH = path.join(app.getPath('userData'), 'settings.json');
 
+console.log('설정 파일 경로:', SETTINGS_PATH);
+console.log('개발 모드:', isDev);
+
 // 기본 설정
 const defaultSettings = {
-  api: {
+  holiday: {
     baseUrl: "http://localhost:3001",
     methods: {
-      api: "POST",
-      sso: "POST",
-      playwright: "POST"
+      holiday: "POST",
+      collection: "POST"
     },
     endpoints: {
-      api: "/api/login",
-      sso: "/api/sso",
-      playwright: "/api/test"
+      holiday: "/api/holidays",
+      collection: "/api/collect"
     }
   },
   payloads: {
-    api: {
-      username: "testuser",
-      password: "testpass"
+    holiday: {
+      year: "2024",
+      month: "all"
     },
-    sso: {
-      clientId: "test-client",
-      redirectUri: "http://localhost:3000/callback",
-      scope: "openid profile email"
-    },
-    playwright: {
-      param1: "value1",
-      param2: "value2"
+    collection: {
+      url: "https://example.com",
+      selector: ".content"
     }
   },
   headers: {
@@ -116,6 +112,11 @@ function setupSettingsManager() {
     return saveSettings(defaultSettings);
   });
 }
+
+app.on('ready', () => {
+  setupSettingsManager();
+  createWindow();
+});
 
 module.exports = {
   setupSettingsManager,
